@@ -186,7 +186,7 @@ int rwtl_Mutext_Unlock(rwtl_mutex* mutex){
 void rwtl_Mutex_Destroy(rwtl_mutex* mutex){
 
     mutex->flag = 0;
-    free(mutex);
+    //free(mutex);
 
 }
 

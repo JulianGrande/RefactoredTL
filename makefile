@@ -6,8 +6,8 @@ RANLIB = ranlib
 all: RefactoredTL.a
 
 RefactoredTL.a: RefactoredTL.o
-	$(AR) RefactoredTL.a RefactoredTL.o
-	$(RANLIB) RefactoredTL.a
+	$(AR) libRefactoredTL.a RefactoredTL.o
+	$(RANLIB) libRefactoredTL.a
 
 RefactoredTL.o: RefactoredTL.h
 
