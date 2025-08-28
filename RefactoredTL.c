@@ -59,7 +59,11 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
         sched_context.uc_stack.ss_sp = sched_stack;
         makecontext(&sched_context, (void*)&schedule, 0);
         
-        alloc_q(q);
+        q = alloc_queue_new();
+        if(q == NULL) {
+            perror("rwtl_Create: Failed to initialize queue.");
+            return -1;
+        }
         enqueue(q, main);
 
     }
@@ -159,35 +163,61 @@ int rwtl_Join(rwtl_t curr_ID){
     return 0;
 }
 
+// Allocate and Initialize internal mutex struct
 void rwtl_init_Mutex(rwtl_mutex* mutex){
 
-    struct Mutex* x = malloc(sizeof(struct Mutex));
-    x->flag = 0;
+    if(mutex == NULL) {
+        fprintf(stderr, "Error: rwtl_init_Mutex called with NULL pointer.\n");
+        return -1;
+    }
 
-    mutex = x;
+    mutex->mutex = (internal_mutex*)malloc(sizeof(internal_mutex));
+    if(mutex->mutex == NULL) {
+        perror("rwlt_init_Mutex: Failed to allocate interal struct for mutex.");
+        mutex->mutex = NULL;
+        return -1;
+    }
 
+    mutex->mutex->flag = 0; // initialize internal flag
 }
 
+// Thread captures lock
 int rwtl_Mutex_Lock(rwtl_mutex* mutex){
 
-    while(__sync_lock_test_and_set(&mutex->flag, 1) == 1){
+    if(mutex == NULL || mutex->mutex == NULL) {
+        fprintf(stderr, "Error: rwtl_Mutex_Lock called uninitialized or with NULL pointer.\n");
+        return -1;
+    }
+
+    while(__sync_lock_test_and_set(&mutex->mutex->flag, 1) == 1) {
         rwtl_Yield();
     }
 
     return 0;
 }
 
+// Thread gives up lock
 int rwtl_Mutext_Unlock(rwtl_mutex* mutex){
 
-    mutex->flag = 0;
+    if(mutex == NULL || mutex->mutex == NULL) {
+        fprintf(stderr, "Error: rwtl_Mutex_Unlock called uninitialized or with NULL pointer.\n");
+        return -1;
+    }
 
+    mutex->mutex->flag = 0;
+    return 0;
 }
 
 void rwtl_Mutex_Destroy(rwtl_mutex* mutex){
 
-    mutex->flag = 0;
-    //free(mutex);
+    if(mutex == NULL || mutex->mutex == NULL) {
+        fprintf(stderr, "Error: rwtl_Mutex_Destroy called uninitialized or with NULL pointer.\n");
+        return -1;
+    }
 
+    mutex->mutex->flag = 0;
+    free(mutex->mutex);
+    mutex->mutex = NULL;
 }
 
 void init_timer() {
@@ -229,14 +259,18 @@ void schedule(){
 
 }
 
-void alloc_q (queue* q){
+queue* alloc_queue_new (){
 
-    q = (queue*)malloc(sizeof(queue));
+    queue* new_q = (queue*)malloc(sizeof(queue));
+    if(new_q == NULL) {
+        perror("alloc_queue_new: Failed to allocate new queue");
+        return NULL;
+    }
 
-    q->count = 0;
-    q->front = NULL;
-    q->rear = NULL;
-
+    new_q->count = 0;
+    new_q->front = NULL;
+    new_q->rear = NULL;
+    return new_q;
 }
 
 int isEmpty (queue* q){

@@ -46,9 +46,15 @@ typedef struct ControlBlock{
 
 } tcb;
 
+typedef struct InternalMutex{
+
+    volatile int flag; 
+
+} internal_mutex;
+
 typedef struct Mutex{
 
-    int flag;
+    internal_mutex* mutex; 
 
 } rwtl_mutex;
 
@@ -70,7 +76,7 @@ typedef struct Queue{
 /*Function Declarations */
 
 /* allocate memory to the queue struct */
-void alloc_q (queue* q);
+queue* alloc_queue_new ();
 
 /* make a node and add to the end of the queue */
 void enqueue (queue* q, tcb* new_rwt);
