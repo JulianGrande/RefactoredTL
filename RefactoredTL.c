@@ -377,7 +377,7 @@ void removeFromQ(queue* q, node* target){
 	if (ptr->rwt->ID == target->rwt->ID) {
 
 		q->front = ptr->next;
-		ptr->rwt->status = BLOCKED;
+		ptr->rwt->status = TERMINATED;
 		free(ptr->rwt->stack);
 		free(ptr->rwt);
 		free(ptr);
@@ -391,7 +391,7 @@ void removeFromQ(queue* q, node* target){
 		if (ptr->rwt->ID == target->rwt->ID) {
 
 			temp->next = ptr->next;
-			ptr->rwt->status = BLOCKED;
+			ptr->rwt->status = TERMINATED;
 			free(ptr->rwt->stack);
 			free(ptr->rwt);
 			free(ptr);

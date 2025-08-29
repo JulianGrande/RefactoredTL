@@ -13,6 +13,7 @@
 #define RUNNING 1
 #define SCHEDULED 2
 #define BLOCKED 3
+#define TERMINATED 4
 
 /* Define h files needed */
 
