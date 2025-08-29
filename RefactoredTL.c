@@ -41,7 +41,17 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
         clock_gettime(CLOCK_MONOTONIC, &start_time);
 
         tcb* main = (tcb*)malloc(sizeof(tcb));
+        if(main == NULL) {
+            perror("rwtl_Create: Failed to allocate main thread control block.");
+            return -1;
+        }
+
         main->stack = malloc(SIGSTKSZ);
+        if(main->stack == NULL) {
+            perror("rwtl_Create: Failed to allocate main thread control block stack.");
+            return -1;
+        }
+
         getcontext(&main->context);
         main->context.uc_link = 0;
         main->context.uc_stack.ss_flags = 0;
@@ -52,6 +62,11 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
         main->status = RUNNING;
 
         sched_stack = malloc(SIGSTKSZ);
+        if(sched_stack == NULL) {
+            perror("rwtl_Create: Failed to allocate schedule stack.");
+            return -1;
+        }
+
         getcontext(&sched_context);
         sched_context.uc_link = 0;
         sched_context.uc_stack.ss_flags = 0;
@@ -71,7 +86,17 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
     clock_gettime(CLOCK_MONOTONIC, &cur_time);
 
     tcb* newThread = (tcb*)malloc(sizeof(tcb));
+    if(newThread == NULL){
+        perror("rwtl_Create: Failed to allocate new thread control block.");
+        return -1;
+    }
+
     newThread->stack = malloc(SIGSTKSZ);
+    if(newThread->stack == NULL){
+        perror("rwtl_Create: Failed to allocate new thread block stack.");
+        return -1;
+    }
+
     getcontext(&newThread->context);
     newThread->context.uc_link = 0;
     newThread->context.uc_stack.ss_flags = 0;
@@ -122,7 +147,6 @@ void rwtl_Exit(){
     node* current = findRunning(q);
 
     if(current != NULL){
-
         clock_gettime(CLOCK_MONOTONIC, &cur_time);
 		current->rwt->comp_time = cur_time;
 		//converted to milliseconds
@@ -134,22 +158,18 @@ void rwtl_Exit(){
 		tot_cntx_switches+= current->rwt->cont_switches;
 
         removeFromQ(q, current);
-
     }
 
     if(q->count == 1){
-
-        tcb* main = dequeue(q);
+        tcb* main_tcb = dequeue(q);
+        free(main_tcb->stack);
+        free(main_tcb);
         free(q);
-        free(main->stack);
-        free(main);
 
+        free(sched_stack);
         setitimer(ITIMER_PROF, 0, NULL);
-
         setcontext(&mainContext);
-
     }
-
 
     setcontext(&sched_context);
 }
@@ -174,7 +194,7 @@ void rwtl_init_Mutex(rwtl_mutex* mutex){
     mutex->mutex = (internal_mutex*)malloc(sizeof(internal_mutex));
     if(mutex->mutex == NULL) {
         perror("rwlt_init_Mutex: Failed to allocate interal struct for mutex.");
-        mutex->mutex = NULL;
+        mutex->mutex = NULL; // Set to null so other functions can error check
         return -1;
     }
 
@@ -282,6 +302,11 @@ int isEmpty (queue* q){
 void enqueue (queue* q, tcb* new_rwt){
 
     node* temp = (node*)malloc(sizeof(node));
+    if(temp == NULL){
+        perror("enqueue: Failed to allocate temporary node.");
+        return;
+    }
+
     temp->rwt = new_rwt;
     temp->next = NULL;
 
