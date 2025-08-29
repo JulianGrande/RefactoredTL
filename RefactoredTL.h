@@ -104,7 +104,7 @@ void init_timer();
 int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg);
 
 /* thread yields remaining time slice */
-int rwtl_Yield();
+void rwtl_Yield(int signum);
 
 /* terminate a thread */
 void rwtl_Exit();

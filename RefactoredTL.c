@@ -126,7 +126,7 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
     return (int)newThread->ID;
 }
 
-int rwtl_Yield(){
+void rwtl_Yield(int signum){
 
     node* currentRunning = findRunning(q);
 
@@ -139,7 +139,7 @@ int rwtl_Yield(){
 
     swapcontext(&currentRunning->rwt->context, &sched_context);
 
-    return 0;
+    return;
 }
 
 void rwtl_Exit(){
@@ -177,7 +177,7 @@ void rwtl_Exit(){
 int rwtl_Join(rwtl_t curr_ID){
 
     while(ifExists(curr_ID) == 1){
-        rwtl_Yield();
+        rwtl_Yield(0);
     }
 
     return 0;
@@ -188,14 +188,14 @@ void rwtl_init_Mutex(rwtl_mutex* mutex){
 
     if(mutex == NULL) {
         fprintf(stderr, "Error: rwtl_init_Mutex called with NULL pointer.\n");
-        return -1;
+        return;
     }
 
     mutex->mutex = (internal_mutex*)malloc(sizeof(internal_mutex));
     if(mutex->mutex == NULL) {
         perror("rwlt_init_Mutex: Failed to allocate interal struct for mutex.");
         mutex->mutex = NULL; // Set to null so other functions can error check
-        return -1;
+        return;
     }
 
     mutex->mutex->flag = 0; // initialize internal flag
@@ -210,7 +210,7 @@ int rwtl_Mutex_Lock(rwtl_mutex* mutex){
     }
 
     while(__sync_lock_test_and_set(&mutex->mutex->flag, 1) == 1) {
-        rwtl_Yield();
+        rwtl_Yield(0);
     }
 
     return 0;
@@ -232,7 +232,7 @@ void rwtl_Mutex_Destroy(rwtl_mutex* mutex){
 
     if(mutex == NULL || mutex->mutex == NULL) {
         fprintf(stderr, "Error: rwtl_Mutex_Destroy called uninitialized or with NULL pointer.\n");
-        return -1;
+        return;
     }
 
     mutex->mutex->flag = 0;

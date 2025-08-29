@@ -1,15 +1,20 @@
 CC = gcc
-CFLAGS = -g -c
+CFLAGS = -g -c -Wall
 AR = ar -rc
 RANLIB = ranlib
 
-all: RefactoredTL.a
+TARGET_LIB = libRefactoredTL.a
+OBJECTS = RefactoredTL.o
 
-RefactoredTL.a: RefactoredTL.o
-	$(AR) libRefactoredTL.a RefactoredTL.o
-	$(RANLIB) libRefactoredTL.a
+all: $(TARGET_LIB)
 
-RefactoredTL.o: RefactoredTL.h
+$(TARGET_LIB): $(OBJECTS)
+	$(AR) $@ $(OBJECTS)
+	$(RANLIB) $@
+
+RefactoredTL.o: RefactoredTL.c RefactoredTL.h
+	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm -rf testfile *.o *.a
+	# Remove object files and the static library
+	rm -f $(OBJECTS) $(TARGET_LIB)
