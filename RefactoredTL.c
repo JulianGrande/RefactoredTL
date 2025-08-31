@@ -15,6 +15,9 @@ ucontext_t context, sched_context;
 void* sched_stack;
 queue* q;
 
+tcb* main_thread = NULL;
+tcb* thread_to_cleanup = NULL;
+
 long tot_cntx_switches = 0;
 double avg_turn_time = 0;
 double avg_resp_time = 0;
@@ -40,26 +43,28 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
         init_timer();
         clock_gettime(CLOCK_MONOTONIC, &start_time);
 
-        tcb* main = (tcb*)malloc(sizeof(tcb));
-        if(main == NULL) {
+        main_thread = (tcb*)malloc(sizeof(tcb));
+        if(main_thread == NULL) {
             perror("rwtl_Create: Failed to allocate main thread control block.");
             return -1;
         }
 
-        main->stack = malloc(SIGSTKSZ);
-        if(main->stack == NULL) {
+        main_thread->stack = malloc(SIGSTKSZ);
+        if(main_thread->stack == NULL) {
             perror("rwtl_Create: Failed to allocate main thread control block stack.");
             return -1;
         }
 
-        getcontext(&main->context);
-        main->context.uc_link = 0;
-        main->context.uc_stack.ss_flags = 0;
-        main->context.uc_stack.ss_size = SIGSTKSZ;
-        main->context.uc_stack.ss_sp = main->stack;
+        printf("1\n");
+        getcontext(&mainContext);
+        getcontext(&main_thread->context);
+        main_thread->context.uc_link = &mainContext;
+        main_thread->context.uc_stack.ss_flags = 0;
+        main_thread->context.uc_stack.ss_size = SIGSTKSZ;
+        main_thread->context.uc_stack.ss_sp = main_thread->stack;
 
-        main->ID = id_counter++;
-        main->status = RUNNING;
+        main_thread->ID = id_counter++;
+        main_thread->status = RUNNING;
 
         sched_stack = malloc(SIGSTKSZ);
         if(sched_stack == NULL) {
@@ -67,6 +72,7 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
             return -1;
         }
 
+        printf("2\n");
         getcontext(&sched_context);
         sched_context.uc_link = 0;
         sched_context.uc_stack.ss_flags = 0;
@@ -79,7 +85,7 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
             perror("rwtl_Create: Failed to initialize queue.");
             return -1;
         }
-        enqueue(q, main);
+        enqueue(q, main_thread);
 
     }
 
@@ -97,8 +103,9 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
         return -1;
     }
 
+    printf("3\n");
     getcontext(&newThread->context);
-    newThread->context.uc_link = 0;
+    newThread->context.uc_link = &sched_context;
     newThread->context.uc_stack.ss_flags = 0;
     newThread->context.uc_stack.ss_size = SIGSTKSZ;
     newThread->context.uc_stack.ss_sp = newThread->stack;
@@ -123,6 +130,12 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
 		setitimer(ITIMER_PROF, &timer, NULL);
 	}
 
+    printf("4\n");
+    if (total_ran_threads == 1){
+        printf("5\n");
+        swapcontext(&main_thread->context, &sched_context);
+    }
+
     return (int)newThread->ID;
 }
 
@@ -137,6 +150,7 @@ void rwtl_Yield(int signum){
     currentRunning->rwt->cont_switches++;
     currentRunning->rwt->status = SCHEDULED;
 
+    printf("Running, about to swap to scheduler in rwtl_Yield\n");
     swapcontext(&currentRunning->rwt->context, &sched_context);
 
     return;
@@ -150,28 +164,33 @@ void rwtl_Exit(){
         clock_gettime(CLOCK_MONOTONIC, &cur_time);
 		current->rwt->comp_time = cur_time;
 		//converted to milliseconds
-		double temp_t_time = (current->rwt->comp_time.tv_sec - current->rwt->arr_time.tv_sec) * 1000 + (current->rwt->comp_time.tv_nsec - current->rwt->arr_time.tv_nsec) / 1000000;
+		double temp_t_time = (current->rwt->comp_time.tv_sec - current->rwt->arr_time.tv_sec) 
+        * 1000 + (current->rwt->comp_time.tv_nsec - current->rwt->arr_time.tv_nsec) / 1000000;
 
 		total_turn_time += temp_t_time;
 		total_completed_threads++;
 		avg_turn_time = total_turn_time / total_completed_threads;
-		tot_cntx_switches+= current->rwt->cont_switches;
+		tot_cntx_switches += current->rwt->cont_switches;
 
         removeFromQ(q, current);
-    }
-
-    if(q->count == 1){
-        tcb* main_tcb = dequeue(q);
-        free(main_tcb->stack);
-        free(main_tcb);
-        free(q);
-
-        free(sched_stack);
-        setitimer(ITIMER_PROF, 0, NULL);
-        setcontext(&mainContext);
+        thread_to_cleanup = current->rwt;
     }
 
     setcontext(&sched_context);
+}
+
+void rwtl_Cleanup() {
+    if(q->count == 1) {
+        tcb* main_tcb = dequeue(q);
+        free(main_tcb->stack);
+        free(main_tcb);
+
+        free(q);
+        free(sched_stack);
+        setitimer(ITIMER_PROF, 0, NULL);
+    }
+
+    setcontext(&mainContext);
 }
 
 int rwtl_Join(rwtl_t curr_ID){
@@ -217,7 +236,7 @@ int rwtl_Mutex_Lock(rwtl_mutex* mutex){
 }
 
 // Thread gives up lock
-int rwtl_Mutext_Unlock(rwtl_mutex* mutex){
+int rwtl_Mutex_Unlock(rwtl_mutex* mutex){
 
     if(mutex == NULL || mutex->mutex == NULL) {
         fprintf(stderr, "Error: rwtl_Mutex_Unlock called uninitialized or with NULL pointer.\n");
@@ -244,8 +263,9 @@ void init_timer() {
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = &rwtl_Yield;
 	sigaction(SIGPROF, &sa, NULL);
-	timer.it_interval.tv_usec = 0;
-	timer.it_interval.tv_sec = 0;
+
+	timer.it_interval.tv_usec = utime_slice;
+	timer.it_interval.tv_sec = time_slice;
 
 	timer.it_value.tv_usec = utime_slice;
 	timer.it_value.tv_sec = time_slice;
@@ -254,6 +274,12 @@ void init_timer() {
 }
 
 void schedule(){
+
+    if(thread_to_cleanup != NULL){
+        free(thread_to_cleanup->stack);
+        free(thread_to_cleanup);
+        thread_to_cleanup = NULL;
+    }
 
     tcb* current = dequeue(q);
     current->status = SCHEDULED;
@@ -375,11 +401,8 @@ void removeFromQ(queue* q, node* target){
 	node* temp = ptr;
 
 	if (ptr->rwt->ID == target->rwt->ID) {
-
 		q->front = ptr->next;
-		ptr->rwt->status = TERMINATED;
-		free(ptr->rwt->stack);
-		free(ptr->rwt);
+		ptr->rwt->status = BLOCKED;
 		free(ptr);
 		ptr = NULL;
 		q->count--;
@@ -391,9 +414,10 @@ void removeFromQ(queue* q, node* target){
 		if (ptr->rwt->ID == target->rwt->ID) {
 
 			temp->next = ptr->next;
-			ptr->rwt->status = TERMINATED;
-			free(ptr->rwt->stack);
-			free(ptr->rwt);
+            if(ptr == q->rear){
+                q->rear = temp;
+            }
+			ptr->rwt->status = BLOCKED;
 			free(ptr);
 			ptr = NULL;
 			q->count--;
@@ -406,9 +430,7 @@ void removeFromQ(queue* q, node* target){
 }
 
 void print_stats(){
-
     printf("Total Context Switches: %ld \n", tot_cntx_switches);
     printf("Average Turnaround Time: %lf \n", avg_turn_time);
     printf("Average Response Time: %lf", avg_resp_time);
-
 }

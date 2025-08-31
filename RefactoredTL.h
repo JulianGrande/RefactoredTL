@@ -13,7 +13,6 @@
 #define RUNNING 1
 #define SCHEDULED 2
 #define BLOCKED 3
-#define TERMINATED 4
 
 /* Define h files needed */
 
@@ -109,6 +108,9 @@ void rwtl_Yield(int signum);
 /* terminate a thread */
 void rwtl_Exit();
 
+/*Cleanup remaining allocated structures and data*/
+void rwtl_Cleanup();
+
 /* wait for specific thread to terminate */
 int rwtl_Join(rwtl_t curr_ID);
 
@@ -119,7 +121,7 @@ void rwtl_init_Mutex(rwtl_mutex* mutex); /* struct st *x = malloc(sizeof *x) */
 int rwtl_Mutex_Lock(rwtl_mutex* mutex);
 
 /* thread releases lock so other threads can do work */
-int rwtl_Mutext_Unlock(rwtl_mutex* mutex);
+int rwtl_Mutex_Unlock(rwtl_mutex* mutex);
 
 /* deallocate memory for Mutext struct */
 void rwtl_Mutex_Destroy(rwtl_mutex* mutex);
