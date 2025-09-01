@@ -11,7 +11,7 @@ int id_counter = 1; //num of active threads
 int total_completed_threads = 0;
 int total_ran_threads = 0;
 static ucontext_t mainContext;
-ucontext_t context, sched_context;
+ucontext_t sched_context;
 void* sched_stack;
 queue* q;
 
@@ -56,7 +56,7 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
         }
 
         printf("1\n");
-        getcontext(&mainContext);
+        // getcontext(&mainContext);
         getcontext(&main_thread->context);
         main_thread->context.uc_link = &mainContext;
         main_thread->context.uc_stack.ss_flags = 0;
@@ -74,7 +74,7 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
 
         printf("2\n");
         getcontext(&sched_context);
-        sched_context.uc_link = 0;
+        sched_context.uc_link = &mainContext;
         sched_context.uc_stack.ss_flags = 0;
         sched_context.uc_stack.ss_size = SIGSTKSZ;
         sched_context.uc_stack.ss_sp = sched_stack;
@@ -133,7 +133,7 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
     printf("4\n");
     if (total_ran_threads == 1){
         printf("5\n");
-        swapcontext(&main_thread->context, &sched_context);
+        swapcontext(&mainContext, &sched_context);
     }
 
     return (int)newThread->ID;
@@ -160,7 +160,7 @@ void rwtl_Exit(){
 
     node* current = findRunning(q);
 
-    if(current != NULL){
+    if(current != NULL && current->rwt->ID != 1){
         clock_gettime(CLOCK_MONOTONIC, &cur_time);
 		current->rwt->comp_time = cur_time;
 		//converted to milliseconds
@@ -275,15 +275,19 @@ void init_timer() {
 
 void schedule(){
 
-    if(thread_to_cleanup != NULL){
+    printf("In scheduler\n");
+    if(thread_to_cleanup != NULL && thread_to_cleanup->ID != 1){ //changed to not have to cleanup the main thread
+        printf("thread_to_cleanup if statement\n");
         free(thread_to_cleanup->stack);
         free(thread_to_cleanup);
         thread_to_cleanup = NULL;
     }
 
+    printf("dequeuing current node\n");
     tcb* current = dequeue(q);
     current->status = SCHEDULED;
     enqueue(q, current);
+    printf("enqueued current node\n");
 
     if (q->front->rwt->resp_time == 0 && q->front->rwt->ID != 1) {
 
@@ -301,8 +305,8 @@ void schedule(){
      q->front->rwt->status = RUNNING;
      q->front->rwt->cont_switches++;
      setitimer(ITIMER_PROF, &timer, NULL);
+     printf("setting new context end of scheduler\n");
      setcontext(&q->front->rwt->context);
-
 }
 
 queue* alloc_queue_new (){
