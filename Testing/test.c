@@ -13,7 +13,7 @@ void external_cal(void* arg){
 
     int n = *((int*) arg);
 
-    for(int i = 0; i < 2; i++){
+    for(int i = 0; i < 20000000; i++){
         rwtl_Mutex_Lock(&mt);
         sum += n;
         rwtl_Mutex_Unlock(&mt);

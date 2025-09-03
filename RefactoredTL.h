@@ -26,6 +26,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <string.h>
+#include <stdint.h>
 
 /* define Constants/Macros/Structs/Definitions needed */
 

@@ -35,6 +35,16 @@ struct timespec cur_time;
 
 /* functions */
 
+typedef void*(*thread_fn_t)(void*);
+
+static void thread_start(uintptr_t fn_ptr, uintptr_t arg_ptr){
+    thread_fn_t fn = (thread_fn_t)fn_ptr;
+    void *arg = (void*)arg_ptr;
+    fn(arg);
+    rwtl_Exit();
+    _exit(0);
+}
+
 int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
 
     /*initilize main and scheduler contexts, and initilize queue */
@@ -49,22 +59,14 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
             return -1;
         }
 
-        main_thread->stack = malloc(SIGSTKSZ);
-        if(main_thread->stack == NULL) {
-            perror("rwtl_Create: Failed to allocate main thread control block stack.");
-            return -1;
-        }
-
-        printf("1\n");
-        // getcontext(&mainContext);
-        getcontext(&main_thread->context);
-        main_thread->context.uc_link = &mainContext;
-        main_thread->context.uc_stack.ss_flags = 0;
-        main_thread->context.uc_stack.ss_size = SIGSTKSZ;
-        main_thread->context.uc_stack.ss_sp = main_thread->stack;
-
         main_thread->ID = id_counter++;
         main_thread->status = RUNNING;
+        main_thread->stack = NULL;
+        main_thread->resp_time = 0;
+        main_thread->cont_switches = 0;
+
+        printf("1\n");
+        getcontext(&mainContext);
 
         sched_stack = malloc(SIGSTKSZ);
         if(sched_stack == NULL) {
@@ -78,7 +80,8 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
         sched_context.uc_stack.ss_flags = 0;
         sched_context.uc_stack.ss_size = SIGSTKSZ;
         sched_context.uc_stack.ss_sp = sched_stack;
-        makecontext(&sched_context, (void*)&schedule, 0);
+        // makecontext(&sched_context, (void*)&schedule, 0);
+        makecontext(&sched_context, (void (*)(void))schedule, 0);
         
         q = alloc_queue_new();
         if(q == NULL) {
@@ -109,7 +112,8 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
     newThread->context.uc_stack.ss_flags = 0;
     newThread->context.uc_stack.ss_size = SIGSTKSZ;
     newThread->context.uc_stack.ss_sp = newThread->stack;
-    makecontext(&newThread->context, (void (*)(void))function, 1, arg);
+    // makecontext(&newThread->context, (void (*)(void))function, 1, arg);
+    makecontext(&newThread->context, (void (*)(void))thread_start, 2, (uintptr_t)function, (uintptr_t)arg);
 
     newThread->arr_time = cur_time;
 
@@ -132,8 +136,10 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
 
     printf("4\n");
     if (total_ran_threads == 1){
-        printf("5\n");
-        swapcontext(&mainContext, &sched_context);
+        if (swapcontext(&main_thread->context, &sched_context) == -1){
+            perror("swapcontext main->sched");
+            exit(1);
+        }
     }
 
     return (int)newThread->ID;
@@ -145,6 +151,7 @@ void rwtl_Yield(int signum){
 
     if(currentRunning == NULL){
         perror("Could not find current running thread\n");
+        return;
     }
 
     currentRunning->rwt->cont_switches++;
@@ -182,7 +189,9 @@ void rwtl_Exit(){
 void rwtl_Cleanup() {
     if(q->count == 1) {
         tcb* main_tcb = dequeue(q);
-        free(main_tcb->stack);
+        if(main_tcb->stack != NULL){
+            free(main_tcb->stack);
+        }
         free(main_tcb);
 
         free(q);
@@ -285,6 +294,10 @@ void schedule(){
 
     printf("dequeuing current node\n");
     tcb* current = dequeue(q);
+    if(current == NULL){
+        fprintf(stderr, "Scheduler error: queue empty\n");
+        setcontext(&mainContext);
+    }
     current->status = SCHEDULED;
     enqueue(q, current);
     printf("enqueued current node\n");
@@ -306,7 +319,10 @@ void schedule(){
      q->front->rwt->cont_switches++;
      setitimer(ITIMER_PROF, &timer, NULL);
      printf("setting new context end of scheduler\n");
-     setcontext(&q->front->rwt->context);
+     if (swapcontext(&sched_context, &q->front->rwt->context) == -1){
+        perror("swapcontext sched->thread");
+        exit(1);
+     }
 }
 
 queue* alloc_queue_new (){
@@ -330,6 +346,10 @@ int isEmpty (queue* q){
 }
 
 void enqueue (queue* q, tcb* new_rwt){
+
+    if (!q){
+        return;
+    }
 
     node* temp = (node*)malloc(sizeof(node));
     if(temp == NULL){
@@ -356,6 +376,10 @@ void enqueue (queue* q, tcb* new_rwt){
 }
 
 tcb* dequeue (queue* q){
+
+    if(!q || !q->front){
+        return NULL;
+    }
 
     node* temp;
     tcb* tempRWT = q->front->rwt;
