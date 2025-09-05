@@ -28,7 +28,7 @@ double total_resp_time = 0;
 
 struct sigaction sa;
 struct itimerval timer;
-int utime_slice = 5000;
+int utime_slice = 50000; // Smaller time slice for testing
 int time_slice = 0;
 struct timespec start_time;
 struct timespec cur_time;
@@ -42,7 +42,7 @@ static void thread_start(uintptr_t fn_ptr, uintptr_t arg_ptr){
     void *arg = (void*)arg_ptr;
     fn(arg);
     rwtl_Exit();
-    _exit(0);
+    _exit(0); // Just in case of catastrophic failure
 }
 
 int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
@@ -65,7 +65,6 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
         main_thread->resp_time = 0;
         main_thread->cont_switches = 0;
 
-        printf("1\n");
         getcontext(&mainContext);
 
         sched_stack = malloc(SIGSTKSZ);
@@ -74,13 +73,11 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
             return -1;
         }
 
-        printf("2\n");
         getcontext(&sched_context);
         sched_context.uc_link = &mainContext;
         sched_context.uc_stack.ss_flags = 0;
         sched_context.uc_stack.ss_size = SIGSTKSZ;
         sched_context.uc_stack.ss_sp = sched_stack;
-        // makecontext(&sched_context, (void*)&schedule, 0);
         makecontext(&sched_context, (void (*)(void))schedule, 0);
         
         q = alloc_queue_new();
@@ -88,8 +85,8 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
             perror("rwtl_Create: Failed to initialize queue.");
             return -1;
         }
-        enqueue(q, main_thread);
 
+        enqueue(q, main_thread);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &cur_time);
@@ -106,17 +103,14 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
         return -1;
     }
 
-    printf("3\n");
     getcontext(&newThread->context);
     newThread->context.uc_link = &sched_context;
     newThread->context.uc_stack.ss_flags = 0;
     newThread->context.uc_stack.ss_size = SIGSTKSZ;
     newThread->context.uc_stack.ss_sp = newThread->stack;
-    // makecontext(&newThread->context, (void (*)(void))function, 1, arg);
     makecontext(&newThread->context, (void (*)(void))thread_start, 2, (uintptr_t)function, (uintptr_t)arg);
 
     newThread->arr_time = cur_time;
-
     newThread->ID = id_counter++;
     newThread->status = SCHEDULED;
     enqueue(q, newThread);
@@ -134,8 +128,7 @@ int rwtl_Create(rwtl_t* new_thread, void *(*function)(void*), void* arg){
 		setitimer(ITIMER_PROF, &timer, NULL);
 	}
 
-    printf("4\n");
-    if (total_ran_threads == 1){
+    if (total_ran_threads >= 1){
         if (swapcontext(&main_thread->context, &sched_context) == -1){
             perror("swapcontext main->sched");
             exit(1);
@@ -155,6 +148,8 @@ void rwtl_Yield(int signum){
     }
 
     currentRunning->rwt->cont_switches++;
+    tot_cntx_switches++;
+
     currentRunning->rwt->status = SCHEDULED;
 
     printf("Running, about to swap to scheduler in rwtl_Yield\n");
@@ -187,6 +182,7 @@ void rwtl_Exit(){
 }
 
 void rwtl_Cleanup() {
+
     if(q->count == 1) {
         tcb* main_tcb = dequeue(q);
         if(main_tcb->stack != NULL){
@@ -227,6 +223,7 @@ void rwtl_init_Mutex(rwtl_mutex* mutex){
     }
 
     mutex->mutex->flag = 0; // initialize internal flag
+    return;
 }
 
 // Thread captures lock
@@ -266,9 +263,11 @@ void rwtl_Mutex_Destroy(rwtl_mutex* mutex){
     mutex->mutex->flag = 0;
     free(mutex->mutex);
     mutex->mutex = NULL;
+    return;
 }
 
 void init_timer() {
+
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = &rwtl_Yield;
 	sigaction(SIGPROF, &sa, NULL);
@@ -284,7 +283,6 @@ void init_timer() {
 
 void schedule(){
 
-    printf("In scheduler\n");
     if(thread_to_cleanup != NULL && thread_to_cleanup->ID != 1){ //changed to not have to cleanup the main thread
         printf("thread_to_cleanup if statement\n");
         free(thread_to_cleanup->stack);
@@ -292,15 +290,17 @@ void schedule(){
         thread_to_cleanup = NULL;
     }
 
-    printf("dequeuing current node\n");
     tcb* current = dequeue(q);
     if(current == NULL){
         fprintf(stderr, "Scheduler error: queue empty\n");
         setcontext(&mainContext);
     }
-    current->status = SCHEDULED;
-    enqueue(q, current);
-    printf("enqueued current node\n");
+    // current->status = SCHEDULED;
+    // enqueue(q, current);
+
+    if(current->status == SCHEDULED) {
+        enqueue(q, current);
+    }
 
     if (q->front->rwt->resp_time == 0 && q->front->rwt->ID != 1) {
 
@@ -313,16 +313,20 @@ void schedule(){
 			total_resp_time += temp_r_time;
 			total_ran_threads++;
 			avg_resp_time = total_resp_time / total_ran_threads;
-		}
+	}
 
      q->front->rwt->status = RUNNING;
      q->front->rwt->cont_switches++;
+     tot_cntx_switches++;
+
      setitimer(ITIMER_PROF, &timer, NULL);
-     printf("setting new context end of scheduler\n");
      if (swapcontext(&sched_context, &q->front->rwt->context) == -1){
         perror("swapcontext sched->thread");
         exit(1);
      }
+    
+
+    return;
 }
 
 queue* alloc_queue_new (){
@@ -342,7 +346,6 @@ queue* alloc_queue_new (){
 int isEmpty (queue* q){
 
     return (q->rear == NULL);
-
 }
 
 void enqueue (queue* q, tcb* new_rwt){
@@ -373,6 +376,7 @@ void enqueue (queue* q, tcb* new_rwt){
     }
 
     q->count++;
+    return;
 }
 
 tcb* dequeue (queue* q){
@@ -388,7 +392,6 @@ tcb* dequeue (queue* q){
     q->count--;
     free(temp);
     return tempRWT;
-
 }
 
 int ifExists(rwtl_t curr_ID){
@@ -455,6 +458,7 @@ void removeFromQ(queue* q, node* target){
 		ptr = ptr->next;
 	}
 
+    return;
 }
 
 void print_stats(){
